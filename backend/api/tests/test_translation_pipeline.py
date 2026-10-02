@@ -23,13 +23,13 @@ class StubGemini:
 
 
 async def test_pipeline_routes_addis_source_to_gemini_target() -> None:
-    result = await TranslationPipeline(StubAddis(), StubGemini()).translate_audio(b"pcm", "am", "en")
+    result = await TranslationPipeline(StubAddis(), StubGemini()).translate_audio(b"\x00\x00", "am", "en")
     assert result.source_text == "addis-stt:am"
     assert result.audio.startswith(b"gemini-tts:en:")
     assert result.latency_ms >= 0
 
 
 async def test_pipeline_routes_gemini_source_to_addis_target() -> None:
-    result = await TranslationPipeline(StubAddis(), StubGemini()).translate_audio(b"pcm", "zh", "om")
+    result = await TranslationPipeline(StubAddis(), StubGemini()).translate_audio(b"\x00\x00", "zh", "om")
     assert result.source_text == "gemini-stt:zh"
     assert result.audio.startswith(b"addis-tts:om:")

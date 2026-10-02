@@ -4,6 +4,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Literal
 
+from services.audio_utils import ensure_pcm16_16k_mono
 from services.translation_pipeline import TranslationPipeline
 
 
@@ -32,6 +33,8 @@ class RealtimeSession:
         return sum(abs(sample) for sample in samples) // len(samples)
 
     async def ingest_audio(self, pcm16: bytes) -> list[RealtimeFrame]:
+        # AUDIO CONTRACT: 16 kHz mono signed little-endian PCM16 only.
+        pcm16 = ensure_pcm16_16k_mono(pcm16)
         if self.energy(pcm16) >= self.silence_energy:
             self._buffer.extend(pcm16)
             return []

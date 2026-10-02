@@ -36,7 +36,7 @@ async def end_session(session_id: UUID, user: UserProfile = Depends(get_current_
 
 @router.post("/{session_id}/process-audio", response_model=AudioProcessResponse)
 async def process_audio(session_id: UUID, request: AudioProcessRequest, user: UserProfile = Depends(get_current_user), service: SessionService = Depends(get_session_service)) -> AudioProcessResponse:
-    return await service.process_audio(user.id, session_id, request.audio_base64)
+    return await service.process_audio(user.id, session_id, request.audio_base64, request.original_sample_rate)
 
 
 @router.post("/{session_id}/context", response_model=list[str])

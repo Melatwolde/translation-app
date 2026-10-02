@@ -11,6 +11,7 @@ from models.user import UserProfile
 from redis_client import get_redis
 from routers.sessions import get_session_service
 from services.livekit_service import LiveKitService
+from services.audio_utils import AudioFormatError, ensure_pcm16_16k_mono
 from services.realtime_orchestrator import RealtimeSession
 from services.session_service import SessionService
 from services.translation_pipeline import TranslationPipeline
@@ -45,7 +46,13 @@ async def realtime_websocket(websocket: WebSocket, session_id: UUID) -> None:
     await websocket.accept()
     try:
         while True:
-            for frame in await orchestrator.ingest_audio(await websocket.receive_bytes()):
+            try:
+                # AUDIO CONTRACT: 16 kHz mono signed little-endian PCM16 only.
+                audio = ensure_pcm16_16k_mono(await websocket.receive_bytes())
+            except AudioFormatError as error:
+                await websocket.close(code=status.WS_1003_UNSUPPORTED_DATA, reason=str(error))
+                return
+            for frame in await orchestrator.ingest_audio(audio):
                 if frame.kind == "json":
                     await websocket.send_json(frame.payload)
                 else:

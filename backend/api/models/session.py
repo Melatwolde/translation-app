@@ -24,6 +24,7 @@ class SessionContextUpdate(BaseModel):
 class AudioProcessRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     audio_base64: str = Field(min_length=1)
+    original_sample_rate: int | None = Field(default=None, gt=0)
 
 
 class TranslationSegment(BaseModel):

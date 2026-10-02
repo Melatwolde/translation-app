@@ -12,6 +12,7 @@ from database import Database
 from models.session import AudioProcessResponse, SessionContextUpdate, SessionCreate, SessionResponse, TranslationSegment
 from redis_client import RedisStore
 from services.translation_pipeline import TranslationPipeline
+from services.audio_utils import AudioFormatError, ensure_pcm16_16k_mono
 
 
 class SessionService:
@@ -36,7 +37,7 @@ class SessionService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         return session
 
-    async def process_audio(self, user_id: UUID, session_id: UUID, encoded_audio: str) -> AudioProcessResponse:
+    async def process_audio(self, user_id: UUID, session_id: UUID, encoded_audio: str, original_sample_rate: int | None = None) -> AudioProcessResponse:
         session = await self.get_owned(user_id, session_id)
         if session.status != "active":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Session has ended")
@@ -44,6 +45,10 @@ class SessionService:
             audio = base64.b64decode(encoded_audio, validate=True)
         except (ValueError, binascii.Error) as error:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="audio_base64 is invalid") from error
+        try:
+            audio = ensure_pcm16_16k_mono(audio, original_sample_rate)
+        except AudioFormatError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
         result = await self.pipeline.translate_audio(audio, session.source_language, session.target_language)
         segment = TranslationSegment(
             id=uuid4(), source_text=result.source_text, translated_text=result.translated_text,

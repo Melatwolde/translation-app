@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from time import perf_counter
 
 from services.addis_service import AddisAIService
+from services.audio_utils import ensure_pcm16_16k_mono
 from services.gemini_service import GeminiService
 
 ADDIS_LANGUAGES = frozenset({"am", "om"})
@@ -26,6 +27,8 @@ class TranslationPipeline:
 
     async def translate_audio(self, audio: bytes, source_language: str, target_language: str) -> PipelineResult:
         started = perf_counter()
+        # AUDIO CONTRACT: 16 kHz mono signed little-endian PCM16 only.
+        audio = ensure_pcm16_16k_mono(audio)
         stt = self.addis if source_language in ADDIS_LANGUAGES else self.gemini
         tts = self.addis if target_language in ADDIS_LANGUAGES else self.gemini
         source_text = await stt.transcribe(audio, source_language)
