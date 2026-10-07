@@ -49,7 +49,10 @@ class SessionService:
             audio = ensure_pcm16_16k_mono(audio, original_sample_rate)
         except AudioFormatError as error:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
-        result = await self.pipeline.translate_audio(audio, session.source_language, session.target_language)
+        try:
+            result = await self.pipeline.translate_audio(audio, session.source_language, session.target_language)
+        except (RuntimeError, TimeoutError) as error:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
         segment = TranslationSegment(
             id=uuid4(), source_text=result.source_text, translated_text=result.translated_text,
             source_language=session.source_language, target_language=session.target_language,
