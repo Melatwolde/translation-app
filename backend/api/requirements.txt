@@ -11,6 +11,6 @@ httpx>=0.27,<1.0
 websockets>=13,<16
 pydub>=0.25,<1.0
 edge-tts>=7.2,<8.0
-audioop-lts>=0.2,<1.0
+audioop-lts>=0.2,<1.0; python_version >= "3.13"
 pytest>=8.0,<9.0
 pytest-asyncio>=0.24,<1.0
