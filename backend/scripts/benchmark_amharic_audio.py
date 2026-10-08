@@ -133,9 +133,6 @@ def _require_provider_keys(pipeline: TranslationPipeline, source: str, target: s
             missing.append("ADDIS_AI_API_KEY (or ADDIS_API_KEY)")
         if not pipeline.addis.settings.addis_ai_base_url:
             missing.append("ADDIS_AI_BASE_URL")
-    if source in {"zh", "zh-cn", "chinese"} or target in {"zh", "zh-cn", "chinese"}:
-        if not pipeline.alibaba.settings.alibaba_dashscope_api_key:
-            missing.append("ALIBABA_DASHSCOPE_API_KEY")
     if settings.translation_provider != "gemini":
         missing.append("TRANSLATION_PROVIDER=gemini")
     if not settings.gemini_api_key:

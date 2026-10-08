@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import wave
 from io import BytesIO
@@ -59,9 +60,40 @@ class AddisAIService:
     async def synthesize(self, text: str, language: str) -> bytes:
         if language not in {"am", "om"}:
             raise ValueError("Addis AI supports only 'am' and 'om' in this pipeline")
-        raise RuntimeError(
-            "Addis TTS endpoint/schema has not been verified. Configure it only after confirming the Addis API contract."
-        )
+        if not text.strip():
+            raise ValueError("Cannot synthesize empty text")
+        if not self.settings.addis_tts_url:
+            raise RuntimeError("ADDIS_TTS_URL is required for Addis AI speech synthesis")
+        headers = self._headers()
+        timeout = self.settings.ai_request_timeout_seconds
+        request = self.client.post if self.client else None
+        if request:
+            response = await asyncio.wait_for(
+                request(self.settings.addis_tts_url, json={"text": text, "language_code": language}, headers=headers, timeout=timeout),
+                timeout=timeout,
+            )
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await asyncio.wait_for(
+                    client.post(self.settings.addis_tts_url, json={"text": text, "language_code": language}, headers=headers),
+                    timeout=timeout,
+                )
+        response.raise_for_status()
+        if "application/json" in response.headers.get("content-type", ""):
+            payload = response.json()
+            data = payload.get("data", payload) if isinstance(payload, dict) else {}
+            encoded_audio = data.get("audio_base64") or data.get("audio") if isinstance(data, dict) else None
+            if not isinstance(encoded_audio, str):
+                raise RuntimeError("Addis AI response did not contain base64 audio")
+            try:
+                audio = base64.b64decode(encoded_audio, validate=True)
+            except ValueError as error:
+                raise RuntimeError("Addis AI returned invalid base64 audio") from error
+        else:
+            audio = response.content
+        if not audio:
+            raise RuntimeError("Addis AI returned empty synthesized audio")
+        return audio
 
 
 def _pcm16_to_wav(pcm16: bytes) -> bytes:

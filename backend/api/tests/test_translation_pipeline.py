@@ -30,11 +30,15 @@ class StubTranslator:
         return f"translation:{source}:{target}:{text}"
 
 
-async def test_pipeline_routes_addis_to_alibaba() -> None:
+async def test_pipeline_routes_addis_to_edge_tts(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def synthesize(text: str) -> bytes:
+        return f"edge-tts:{text}".encode()
+
+    monkeypatch.setattr("services.translation_pipeline.get_free_chinese_tts_pcm16", synthesize)
     result = await TranslationPipeline(StubAddis(), StubAlibaba(), StubTranslator()).translate_audio(b"\x00\x00", "am", "zh")
     assert result.source_text == "addis-stt:am"
-    assert result.audio.startswith(b"alibaba-tts:")
-    assert result.provider_path == "addis_stt->gemini_mt->alibaba_tts"
+    assert result.audio.startswith(b"edge-tts:")
+    assert result.provider_path == "addis_stt->gemini_mt->edge_tts"
 
 
 async def test_pipeline_routes_alibaba_to_addis() -> None:
@@ -53,7 +57,11 @@ async def test_translation_service_missing_key_is_an_error() -> None:
         await TranslationService(Settings(gemini_api_key="")).translate("hello", "am", "zh")
 
 
-async def test_duplex_cross_talk_lock_discards_microphone_while_playing() -> None:
+async def test_duplex_cross_talk_lock_discards_microphone_while_playing(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def synthesize(text: str) -> bytes:
+        return f"edge-tts:{text}".encode()
+
+    monkeypatch.setattr("services.translation_pipeline.get_free_chinese_tts_pcm16", synthesize)
     session = DuplexTranslationSession(TranslationPipeline(StubAddis(), StubAlibaba(), StubTranslator()))
     await session.start()
     session.set_playback_active("zh", True)
@@ -62,4 +70,7 @@ async def test_duplex_cross_talk_lock_discards_microphone_while_playing() -> Non
     session.set_playback_active("zh", False)
     assert await session.ingest_audio("zh", b"\x00\x00")
     assert await session.audio_out["am"].get() == b"addis-tts:am:translation:zh:am:alibaba-stt:zh"
+    result = await session._translate_chunk(b"\x00\x00", "am", "zh")
+    assert result.audio.startswith(b"edge-tts:")
+    assert result.provider_path == "addis_stt->gemini_mt->edge_tts"
     await session.stop()

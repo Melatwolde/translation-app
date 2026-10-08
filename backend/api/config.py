@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     otp_ttl_seconds: int = 300
     otp_debug_code: str = "123456"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-2.0-flash"
     addis_ai_api_key: str = Field(default="", validation_alias=AliasChoices("ADDIS_AI_API_KEY", "ADDIS_API_KEY", "addis_ai_api_key"))
     addis_ai_base_url: str = ""
     addis_tts_url: str = ""

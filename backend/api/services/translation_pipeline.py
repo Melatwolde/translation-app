@@ -10,7 +10,11 @@ from time import perf_counter
 from services.addis_service import AddisAIService
 from services.audio_utils import ensure_pcm16_16k_mono
 from services.alibaba_service import AlibabaService
+from services.edge_tts_service import get_free_chinese_tts_pcm16
+# from services.gemini_service import GeminiAudioService
 from services.translation_service import TranslationService
+import httpx
+from services.local_stt_service import LocalChineseSTTService
 
 ADDIS_LANGUAGES = frozenset({"am", "om"})
 CHINESE_LANGUAGES = frozenset({"zh", "zh-cn", "chinese"})
@@ -32,11 +36,48 @@ class TranslationPipeline:
         addis: AddisAIService | None = None,
         alibaba: AlibabaService | None = None,
         translator: TranslationService | None = None,
+        # gemini: GeminiAudioService | None = None,
+        local_stt: LocalChineseSTTService | None = None,
     ) -> None:
         self.addis = addis or AddisAIService()
         self.alibaba = alibaba or AlibabaService()
         self.translator = translator or TranslationService()
+        # self.gemini = gemini or GeminiAudioService(self.translator.settings)
+        self.local_stt = local_stt or LocalChineseSTTService()
+        
 
+    async def _retry_speech_call(self, operation: Callable[[], Awaitable[str | bytes]]) -> str | bytes:
+        timeout = self.translator.settings.ai_request_timeout_seconds
+        for attempt in range(3):
+            try:
+                return await asyncio.wait_for(operation(), timeout=timeout)
+            except (TimeoutError, httpx.TransportError):
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(0.1 * (attempt + 1))
+
+    # async def _translate_chinese_to_addis(
+    #     self, audio: bytes, target: str, context_turns: list[str] | None = None,
+    # ) -> tuple[str, str, bytes]:
+    #     source_text = await self._retry_speech_call(lambda: self.gemini.transcribe_chinese(audio))
+    #     assert isinstance(source_text, str)
+    #     translated_text = await self.translator.translate(source_text, "zh", target, context_turns=context_turns)
+    #     output_audio = await self._retry_speech_call(lambda: self.addis.synthesize(translated_text, target))
+    #     assert isinstance(output_audio, bytes)
+    #     return source_text, translated_text, output_audio
+    async def _translate_chinese_to_addis(
+        self, audio: bytes, target: str, context_turns: list[str] | None = None,
+    ) -> tuple[str, str, bytes]:
+        # REPLACE the gemini call with the local, quota-free call
+        source_text = await self._retry_speech_call(
+            lambda: asyncio.to_thread(self.local_stt.transcribe_sync, audio)
+        )
+        assert isinstance(source_text, str)
+        
+        translated_text = await self.translator.translate(source_text, "zh", target, context_turns=context_turns)
+        output_audio = await self._retry_speech_call(lambda: self.addis.synthesize(translated_text, target))
+        assert isinstance(output_audio, bytes)
+        return source_text, translated_text, output_audio
     async def translate_audio(self, audio: bytes, source_language: str, target_language: str) -> PipelineResult:
         started = perf_counter()
         audio = ensure_pcm16_16k_mono(audio)
@@ -46,13 +87,11 @@ class TranslationPipeline:
         if source in ADDIS_LANGUAGES and target in CHINESE_LANGUAGES:
             source_text = await self.addis.transcribe(audio, source)
             translated_text = await self.translator.translate(source_text, source, "zh")
-            output_audio = await self.alibaba.synthesize_chinese(translated_text)
-            path = f"addis_stt->{mt_provider}_mt->alibaba_tts"
+            output_audio = await get_free_chinese_tts_pcm16(translated_text)
+            path = f"addis_stt->{mt_provider}_mt->edge_tts"
         elif source in CHINESE_LANGUAGES and target in ADDIS_LANGUAGES:
-            source_text = await self.alibaba.transcribe_chinese(audio)
-            translated_text = await self.translator.translate(source_text, "zh", target)
-            output_audio = await self.addis.synthesize(translated_text, target)
-            path = f"alibaba_stt->{mt_provider}_mt->addis_tts"
+            source_text, translated_text, output_audio = await self._translate_chinese_to_addis(audio, target)
+            path = f"gemini_stt->{mt_provider}_mt->addis_tts"
         elif target == "en" and (source in ADDIS_LANGUAGES or source in CHINESE_LANGUAGES):
             if source in ADDIS_LANGUAGES:
                 source_text = await self.addis.transcribe(audio, source)
@@ -132,15 +171,15 @@ class DuplexTranslationSession:
     async def _translate_chunk(self, pcm16: bytes, source: str, destination: str) -> PipelineResult:
         # Keep context out of the batch API but pass it to MT on the live path.
         if source == "zh":
-            text = await self.pipeline.alibaba.transcribe_chinese(pcm16)
-            translated = await self.pipeline.translator.translate(text, "zh", "am", context_turns=list(self._context)[-3:])
-            audio = await self.pipeline.addis.synthesize(translated, "am")
-            path = f"alibaba_stt->{self.pipeline.translator.settings.translation_provider}_mt->addis_tts"
+            text, translated, audio = await self.pipeline._translate_chinese_to_addis(
+                pcm16, "am", context_turns=list(self._context)[-3:],
+            )
+            path = f"gemini_stt->{self.pipeline.translator.settings.translation_provider}_mt->addis_tts"
         else:
             text = await self.pipeline.addis.transcribe(pcm16, "am")
             translated = await self.pipeline.translator.translate(text, "am", "zh", context_turns=list(self._context)[-3:])
-            audio = await self.pipeline.alibaba.synthesize_chinese(translated)
-            path = f"addis_stt->{self.pipeline.translator.settings.translation_provider}_mt->alibaba_tts"
+            audio = await get_free_chinese_tts_pcm16(translated)
+            path = f"addis_stt->{self.pipeline.translator.settings.translation_provider}_mt->edge_tts"
         return PipelineResult(text, translated, audio, 0, path, datetime.now(UTC))
 
     async def stop(self) -> None:
