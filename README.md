@@ -1,4 +1,4 @@
-# AfroSino Voice Bridge: Bidirectional Amharic-Chinese Audio Translator
+# A Bidirectional Amharic-Chinese Audio Translator
 
 A high-performance, cost-optimized, real-time bidirectional speech translation pipeline designed to bridge low-resource languages (Amharic/Oromo) with high-demand economic languages (Mandarin Chinese). 
 
